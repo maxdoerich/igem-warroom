@@ -32,6 +32,11 @@ Optional configuration: copy `.env.example` to `.env`.
   but its public projects are discoverable via namespace search and are readable without a token.
 - Teams without a public repo (private, not created yet, or non-competition programs) are shown as
   dashed hollow markers.
+- **Coordinates** — the registry's are used when they fall inside the team's country (or within 75 km
+  of its coast / 25 km of its border; checked against Natural Earth 1:50m outlines). Missing, `0,0`
+  placeholder, or out-of-country coordinates are geocoded once via OpenStreetMap Nominatim
+  (institution name first, then city) and cached in the `geocode_cache` table. City-level fixes are
+  marked "location approximate" in the tooltip.
 
 ## How syncing works
 

@@ -1,6 +1,7 @@
 import { config } from '../config.ts';
 import { db, kvSet, transaction } from '../db/db.ts';
 import { gitlab, type GitlabProject } from '../sources/gitlab.ts';
+import { fillMissingCoordinates, usableCoords } from '../geo/geocode.ts';
 import { HttpError, mapPool } from '../sources/http.ts';
 import { getTeam, listTeams } from '../sources/igem.ts';
 
@@ -33,21 +34,25 @@ export async function syncTeams(log: (msg: string) => void = console.log): Promi
   log(`[teams] fetching ${needDetail.length} team detail records (coords, slug)…`);
 
   const upsertDetail = db.prepare(`
-    INSERT INTO teams (id, slug, name, institution, city, country, region, section, status, is_remote, lat, lng, detail_fetched_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO teams (id, slug, name, institution, city, country, region, section, status, is_remote, lat, lng, coord_source, detail_fetched_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       slug = excluded.slug, name = excluded.name, institution = excluded.institution, city = excluded.city,
       country = excluded.country, region = excluded.region, section = excluded.section, status = excluded.status,
-      is_remote = excluded.is_remote, lat = excluded.lat, lng = excluded.lng,
-      detail_fetched_at = excluded.detail_fetched_at, updated_at = excluded.updated_at`);
+      is_remote = excluded.is_remote, detail_fetched_at = excluded.detail_fetched_at, updated_at = excluded.updated_at,
+      -- Keep previously geocoded coordinates when the registry still has none.
+      lat = CASE WHEN excluded.coord_source = 'registry' THEN excluded.lat ELSE teams.lat END,
+      lng = CASE WHEN excluded.coord_source = 'registry' THEN excluded.lng ELSE teams.lng END,
+      coord_source = CASE WHEN excluded.coord_source = 'registry' THEN 'registry' ELSE teams.coord_source END`);
 
   let done = 0;
   const { errors } = await mapPool(needDetail, 4, async (s) => {
     const d = await getTeam(s.id);
     const inst = d.institutions?.[0];
+    const valid = usableCoords(d.lat ?? null, d.lng ?? null, d.country);
     upsertDetail.run(
       d.id, d.slug, d.name, inst?.name ?? null, d.city, d.country, d.region, d.section, d.status,
-      d.isRemote ? 1 : 0, d.lat ?? null, d.lng ?? null, Date.now(), Date.now(),
+      d.isRemote ? 1 : 0, valid ? d.lat : null, valid ? d.lng : null, valid ? 'registry' : null, Date.now(), Date.now(),
     );
     if (++done % 50 === 0) log(`[teams]   ${done}/${needDetail.length}`);
   });
@@ -57,6 +62,8 @@ export async function syncTeams(log: (msg: string) => void = console.log): Promi
   transaction(() => {
     for (const s of summaries) updateSummary.run(s.name, s.status, s.section, s.region, now, s.id);
   });
+
+  await fillMissingCoordinates(log);
 
   log('[teams] listing GitLab projects in namespace…');
   const projects = await gitlab.listYearProjects(year);

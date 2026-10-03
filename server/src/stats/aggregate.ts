@@ -18,6 +18,8 @@ export interface TeamSummary {
   status: string | null;
   lat: number | null;
   lng: number | null;
+  /** registry | institution | city — 'city' means the marker is only city-accurate. */
+  coordSource: string | null;
   gitlabPath: string | null;
   synced: boolean;
   commits: number;
@@ -40,7 +42,7 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
   const rows = db
     .prepare(`
       SELECT t.id, t.slug, t.name, t.institution, t.city, t.country, t.region, t.section, t.status, t.lat, t.lng,
-             t.gitlab_path, COALESCE(s.backfilled, 0) AS backfilled,
+             t.coord_source, t.gitlab_path, COALESCE(s.backfilled, 0) AS backfilled,
              COUNT(c.sha) AS commits, MAX(c.committed_at) AS last_commit_at,
              COALESCE(SUM(c.committed_at >= :d1), 0) AS c24h,
              COALESCE(SUM(c.committed_at >= :d7), 0) AS c7d,
@@ -81,6 +83,7 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
     status: r.status,
     lat: r.lat,
     lng: r.lng,
+    coordSource: r.coord_source,
     gitlabPath: r.gitlab_path,
     synced: Boolean(r.backfilled),
     commits: r.commits,

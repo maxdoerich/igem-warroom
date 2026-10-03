@@ -1,6 +1,7 @@
 import { config } from '../config.ts';
 import { bus } from '../bus.ts';
 import { db, kvGet, kvSet } from '../db/db.ts';
+import { fillMissingCoordinates } from '../geo/geocode.ts';
 import { gitlab } from '../sources/gitlab.ts';
 import { mapPool } from '../sources/http.ts';
 import { stalestTeams, syncTeamCommits, teamByProjectId, teamsNeedingBackfill } from './commits.ts';
@@ -38,6 +39,8 @@ async function ensureTeams() {
   const count = (db.prepare('SELECT COUNT(*) AS n FROM teams').get() as { n: number }).n;
   if (count > 0 && Date.now() - syncedAt < config.teamsRefreshHours * 3600_000) {
     status.teamsSyncedAt = syncedAt;
+    // Cheap when nothing is missing; geocode results are cached.
+    if ((await fillMissingCoordinates(log)).fixed) bus.emit('teams-updated');
     return;
   }
   status.phase = 'teams';

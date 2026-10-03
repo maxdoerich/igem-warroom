@@ -10,6 +10,7 @@ export interface TeamSummary {
   status: string | null;
   lat: number | null;
   lng: number | null;
+  coordSource: string | null;
   gitlabPath: string | null;
   synced: boolean;
   commits: number;

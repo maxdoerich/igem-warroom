@@ -20,6 +20,7 @@ export function Tooltip({ team, x, y, now }: Props) {
         <span className="tt-sub">
           {team.city}, {team.country} · {regionLabel(team.region)} · {sectionLabel(team.section)}
         </span>
+        {team.coordSource === 'city' && <span className="tt-sub">Location approximate (city centre)</span>}
       </div>
       {!team.gitlabPath ? (
         <div className="tt-note">No public wiki repository</div>

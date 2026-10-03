@@ -63,6 +63,14 @@ export const db = new DatabaseSync(config.dbPath);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
 db.exec(SCHEMA);
 
+// Migrations for databases created by earlier versions.
+const teamCols = new Set((db.prepare('PRAGMA table_info(teams)').all() as { name: string }[]).map((c) => c.name));
+if (!teamCols.has('coord_source')) {
+  db.exec('ALTER TABLE teams ADD COLUMN coord_source TEXT'); // registry | institution | city | missing
+  db.exec(`UPDATE teams SET coord_source = 'registry'
+           WHERE lat IS NOT NULL AND lng IS NOT NULL AND NOT (ABS(lat) < 0.01 AND ABS(lng) < 0.01)`);
+}
+
 export function kvGet(key: string): string | undefined {
   const row = db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined;
   return row?.value;
