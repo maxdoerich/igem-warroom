@@ -1,0 +1,102 @@
+import { config } from '../config.ts';
+import { db, kvSet, transaction } from '../db/db.ts';
+import { gitlab, type GitlabProject } from '../sources/gitlab.ts';
+import { HttpError, mapPool } from '../sources/http.ts';
+import { getTeam, listTeams } from '../sources/igem.ts';
+
+const DETAIL_MAX_AGE_MS = 7 * 24 * 3600_000;
+
+export interface TeamSyncReport {
+  teams: number;
+  detailsFetched: number;
+  matched: number;
+  unmatched: { id: number; name: string; slug: string }[];
+  detailErrors: { id: number; name: string; error: string }[];
+}
+
+export async function syncTeams(log: (msg: string) => void = console.log): Promise<TeamSyncReport> {
+  const year = config.year;
+  log(`[teams] fetching iGEM ${year} registry…`);
+  const summaries = await listTeams(year);
+  log(`[teams] ${summaries.length} teams in registry`);
+
+  const known = new Map(
+    (db.prepare('SELECT id, slug, detail_fetched_at FROM teams').all() as { id: number; slug: string; detail_fetched_at: number | null }[]).map(
+      (r) => [r.id, r],
+    ),
+  );
+  const now = Date.now();
+  const needDetail = summaries.filter((s) => {
+    const k = known.get(s.id);
+    return !k || !k.detail_fetched_at || now - k.detail_fetched_at > DETAIL_MAX_AGE_MS;
+  });
+  log(`[teams] fetching ${needDetail.length} team detail records (coords, slug)…`);
+
+  const upsertDetail = db.prepare(`
+    INSERT INTO teams (id, slug, name, institution, city, country, region, section, status, is_remote, lat, lng, detail_fetched_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      slug = excluded.slug, name = excluded.name, institution = excluded.institution, city = excluded.city,
+      country = excluded.country, region = excluded.region, section = excluded.section, status = excluded.status,
+      is_remote = excluded.is_remote, lat = excluded.lat, lng = excluded.lng,
+      detail_fetched_at = excluded.detail_fetched_at, updated_at = excluded.updated_at`);
+
+  let done = 0;
+  const { errors } = await mapPool(needDetail, 4, async (s) => {
+    const d = await getTeam(s.id);
+    const inst = d.institutions?.[0];
+    upsertDetail.run(
+      d.id, d.slug, d.name, inst?.name ?? null, d.city, d.country, d.region, d.section, d.status,
+      d.isRemote ? 1 : 0, d.lat ?? null, d.lng ?? null, Date.now(), Date.now(),
+    );
+    if (++done % 50 === 0) log(`[teams]   ${done}/${needDetail.length}`);
+  });
+
+  // Registry fields that may change between detail refreshes (status, name).
+  const updateSummary = db.prepare('UPDATE teams SET name = ?, status = ?, section = ?, region = ?, updated_at = ? WHERE id = ?');
+  transaction(() => {
+    for (const s of summaries) updateSummary.run(s.name, s.status, s.section, s.region, now, s.id);
+  });
+
+  log('[teams] listing GitLab projects in namespace…');
+  const projects = await gitlab.listYearProjects(year);
+  log(`[teams] ${projects.length} GitLab projects found in ${year}/`);
+  const bySlug = new Map(projects.map((p) => [p.path.toLowerCase(), p]));
+
+  const teams = db.prepare('SELECT id, slug, name FROM teams').all() as { id: number; slug: string; name: string }[];
+  const missing = teams.filter((t) => !bySlug.has(t.slug.toLowerCase()));
+  // Namespace search can miss a few; try a direct lookup before declaring a team unmatched.
+  await mapPool(missing, 4, async (t) => {
+    try {
+      const p = await gitlab.getProject(`${year}/${t.slug}`);
+      bySlug.set(t.slug.toLowerCase(), p);
+    } catch (err) {
+      if (!(err instanceof HttpError && err.status === 404)) throw err;
+    }
+  });
+
+  const setProject = db.prepare(`
+    UPDATE teams SET gitlab_project_id = ?, gitlab_path = ?, project_created_at = ?, last_activity_at = ? WHERE id = ?`);
+  const unmatched: TeamSyncReport['unmatched'] = [];
+  transaction(() => {
+    for (const t of teams) {
+      const p: GitlabProject | undefined = bySlug.get(t.slug.toLowerCase());
+      if (!p) {
+        unmatched.push(t);
+        continue;
+      }
+      setProject.run(p.id, p.path_with_namespace, Date.parse(p.created_at), Date.parse(p.last_activity_at), t.id);
+    }
+  });
+  kvSet('teams_synced_at', String(Date.now()));
+
+  const report: TeamSyncReport = {
+    teams: teams.length,
+    detailsFetched: needDetail.length - errors.length,
+    matched: teams.length - unmatched.length,
+    unmatched,
+    detailErrors: errors.map((e) => ({ id: e.item.id, name: e.item.name, error: String(e.error) })),
+  };
+  log(`[teams] matched ${report.matched}/${report.teams} teams to GitLab projects; ${unmatched.length} unmatched, ${errors.length} detail errors`);
+  return report;
+}

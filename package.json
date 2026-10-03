@@ -1,0 +1,21 @@
+{
+  "name": "igem-warroom",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tactical local dashboard for monitoring iGEM 2026 teams' wiki activity",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev -w server\" \"npm:dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "sync:teams": "npm run sync:teams -w server",
+    "sync:commits": "npm run sync:commits -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
