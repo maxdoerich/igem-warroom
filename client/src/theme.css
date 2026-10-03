@@ -801,3 +801,37 @@ a:hover {
     flex-wrap: wrap;
   }
 }
+
+/* ---------- time replay ---------- */
+.replay-open {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(14, 19, 22, 0.88);
+}
+.replay {
+  position: absolute;
+  left: 254px; /* clear of the legend */
+  right: 12px;
+  bottom: 12px;
+  max-width: 720px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(14, 19, 22, 0.92);
+  backdrop-filter: blur(4px);
+}
+.replay input[type='range'] {
+  flex: 1;
+  accent-color: var(--amber);
+}
+.replay-date {
+  font-size: 15px;
+  color: var(--amber);
+  min-width: 96px;
+}
+.replay-stat {
+  font-size: 12px;
+  white-space: nowrap;
+}

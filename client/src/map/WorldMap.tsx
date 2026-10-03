@@ -9,6 +9,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import world110Url from 'world-atlas/countries-110m.json?url';
 import world50Url from 'world-atlas/countries-50m.json?url';
 import type { TeamSummary } from '../api';
+import type { ReplayOverride } from '../ui/Replay';
 import { heatColor, heatScale, markerRadius } from './heat';
 
 export interface WorldMapHandle {
@@ -24,6 +25,8 @@ interface Props {
   isVisible: (t: TeamSummary) => boolean;
   onHover: (team: TeamSummary | null, clientX: number, clientY: number) => void;
   onSelect: (team: TeamSummary | null) => void;
+  /** Time-replay values that replace live heat/commits while active. */
+  override?: ReplayOverride | null;
 }
 
 interface Marker {
@@ -31,6 +34,8 @@ interface Marker {
   bx: number; // projected base coords (zoom 1)
   by: number;
   r: number;
+  heat: number; // live value, or replay value while replaying
+  commits: number;
   sx: number; // screen coords (current transform)
   sy: number;
 }
@@ -108,10 +113,10 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
       .filter((t) => t.lat !== null && t.lng !== null)
       .map((team) => {
         const [bx, by] = st.projection([team.lng!, team.lat!]) ?? [0, 0];
-        return { team, bx, by, r: Math.min(18, markerRadius(team.commits)), sx: 0, sy: 0 };
+        return { team, bx, by, r: Math.min(18, markerRadius(team.commits)), heat: team.heat, commits: team.commits, sx: 0, sy: 0 };
       })
       // Hot markers draw last so they sit on top.
-      .sort((a, b) => a.team.heat - b.team.heat || a.team.commits - b.team.commits);
+      .sort((a, b) => a.heat - b.heat || a.commits - b.commits);
     updateScreen();
   }
 
@@ -186,7 +191,17 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
     ctx.clearRect(0, 0, st.w, st.h);
 
     const zr = Math.min(1.8, 1 + Math.log2(k) * 0.35);
-    const maxHeat = st.markers.reduce((mx, m) => Math.max(mx, m.team.heat), 0);
+    const ov = p.override;
+    if (ov) {
+      for (const m of st.markers) {
+        const v = ov.get(m.team.id);
+        m.heat = v?.heat ?? 0;
+        m.commits = v?.commits ?? 0;
+        m.r = Math.min(18, markerRadius(m.commits));
+      }
+      st.markers.sort((a, b) => a.heat - b.heat || a.commits - b.commits);
+    }
+    const maxHeat = st.markers.reduce((mx, m) => Math.max(mx, m.heat), 0);
     const norm = heatScale(maxHeat);
     const inView = (m: Marker, pad = 20) => m.sx > -pad && m.sx < st.w + pad && m.sy > -pad && m.sy < st.h + pad;
 
@@ -211,7 +226,7 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.setLineDash([]);
-      } else if (m.team.commits === 0) {
+      } else if (m.commits === 0) {
         // Repo exists but no team commits yet: hollow ring.
         ctx.arc(m.sx, m.sy, 3 * zr, 0, Math.PI * 2);
         ctx.strokeStyle = heatColor(0);
@@ -219,7 +234,7 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
         ctx.stroke();
       } else {
         ctx.arc(m.sx, m.sy, r, 0, Math.PI * 2);
-        ctx.fillStyle = heatColor(norm(m.team.heat));
+        ctx.fillStyle = heatColor(norm(m.heat));
         ctx.fill();
         // Surface ring separates overlapping markers.
         ctx.strokeStyle = C.ocean;
@@ -238,7 +253,7 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
       const order = [...(home ? [home] : []), ...st.markers.slice().reverse().filter((m) => m !== home)];
       for (const m of order) {
         if (!inView(m, 0) || !p.isVisible(m.team)) continue;
-        const r = (m.team.gitlabPath && m.team.commits ? m.r : 3) * zr;
+        const r = (m.team.gitlabPath && m.commits ? m.r : 3) * zr;
         const tx = m.sx + r + 4;
         const tw = ctx.measureText(m.team.name).width;
         const box: [number, number, number, number] = [tx - 2, m.sy - 8, tx + tw + 2, m.sy + 8];
@@ -246,7 +261,7 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
         boxes.push(box);
         ctx.fillStyle = 'rgba(7, 9, 11, 0.75)';
         ctx.fillRect(box[0], box[1] + 2, box[2] - box[0], box[3] - box[1] - 4);
-        ctx.fillStyle = m === home ? C.accent : m.team.c7d > 0 ? C.ink : C.inkMuted;
+        ctx.fillStyle = m === home ? C.accent : m.heat > 0.05 ? C.ink : C.inkMuted;
         ctx.fillText(m.team.name, tx, m.sy);
       }
     }
@@ -425,6 +440,13 @@ export const WorldMap = forwardRef<WorldMapHandle, Props>(function WorldMap(prop
   useEffect(() => {
     s.current.overlayDirty = true;
   }, [props.selectedId, props.isVisible, props.homeSlug]);
+
+  useEffect(() => {
+    // Leaving replay: restore live values.
+    if (!props.override) projectMarkers();
+    s.current.overlayDirty = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.override]);
 
   useImperativeHandle(ref, () => ({
     flyTo(teamId, scale = 7) {

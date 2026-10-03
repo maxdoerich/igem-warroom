@@ -5,6 +5,7 @@ import { Hud } from './ui/Hud';
 import { Leaderboard, type Filters, type Metric } from './ui/Leaderboard';
 import { LiveFeed } from './ui/LiveFeed';
 import { MapLegend } from './ui/MapLegend';
+import { Replay, type ReplayOverride } from './ui/Replay';
 import { TeamPanel } from './ui/TeamPanel';
 import { Tooltip } from './ui/Tooltip';
 
@@ -48,6 +49,7 @@ export function App() {
   const [metric, setMetric] = useState<Metric>('c7d');
   const [filters, setFilters] = useState<Filters>({ query: '', region: '', section: '', activeOnly: false });
   const [error, setError] = useState<string | null>(null);
+  const [replay, setReplay] = useState<ReplayOverride | null>(null);
 
   const homeSlug = meta?.homeTeam ?? 'heidelberg';
   const selectedRef = useRef(selectedId);
@@ -179,7 +181,9 @@ export function App() {
             isVisible={isVisible}
             onHover={onHover}
             onSelect={(t) => select(t)}
+            override={replay}
           />
+          <Replay teams={teams} onOverride={setReplay} />
           <MapLegend onReset={() => mapRef.current?.resetView()} />
           {error && <div className="map-error panel">Cannot reach server: {error}</div>}
           {!error && teams.length === 0 && <div className="map-error panel">Waiting for team registry sync…</div>}
