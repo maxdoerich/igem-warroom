@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { TeamDetail } from '../api';
 import { fmtAgo, fmtInt, fmtUtc, regionLabel, sectionLabel } from '../format';
 import { heatColor } from '../map/heat';
+import { openRegistryWindow } from '../shared/channel';
 
 interface Props {
   team: TeamDetail | null;
@@ -72,6 +73,21 @@ export function TeamPanel({ team, loading, isHome, onClose, now }: Props) {
             <Stat label="Rank 7d · world" value={team.rank7d ? `#${team.rank7d}` : '—'} />
             <Stat label={`Rank 7d · ${regionLabel(team.region)}`} value={team.regionRank7d ? `#${team.regionRank7d} / ${team.regionTeams}` : '—'} />
           </div>
+
+          <Section title="Parts registry">
+            {team.registry ? (
+              <div className="tp-reg">
+                <span className="v-published">{team.registry.published} published</span>
+                <span className="v-screening">{team.registry.screening} screening</span>
+                <span className="v-draft">{team.registry.draft} draft</span>
+                <button className="btn btn-small-inline" onClick={() => openRegistryWindow(team.id)}>
+                  Parts ↗
+                </button>
+              </div>
+            ) : (
+              <span className="muted">No registry counts yet.</span>
+            )}
+          </Section>
 
           <Section title="Commits per day · last 60 days">
             <DailyBars start={team.daily.start} counts={team.daily.counts} />
@@ -147,17 +163,31 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function DailyBars({ start, counts }: { start: number; counts: number[] }) {
+/** 60-day daily bar chart with hover readout. `noun` names what is counted. */
+export function DailyBars({
+  start,
+  counts,
+  noun = 'commit',
+  barClass = 'bar',
+  width: W = 340,
+  height: H = 70,
+}: {
+  start: number;
+  counts: number[];
+  noun?: string;
+  barClass?: string;
+  /** viewBox size; match the container's aspect so tick text isn't scaled up. */
+  width?: number;
+  height?: number;
+}) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 340;
-  const H = 70;
   const max = Math.max(1, ...counts);
   const bw = W / counts.length;
   const total = counts.reduce((a, b) => a + b, 0);
   const label =
     hover === null
-      ? `${total} commits in 60 days · peak ${max}/day`
-      : `${new Date(start + hover * DAY).toISOString().slice(0, 10)} · ${counts[hover]} commit${counts[hover] === 1 ? '' : 's'}`;
+      ? `${total} ${noun}s in ${counts.length} days · peak ${max}/day`
+      : `${new Date(start + hover * DAY).toISOString().slice(0, 10)} · ${counts[hover]} ${noun}${counts[hover] === 1 ? '' : 's'}`;
   return (
     <div className="chart">
       <div className="chart-readout">{label}</div>
@@ -173,7 +203,7 @@ function DailyBars({ start, counts }: { start: number; counts: number[] }) {
               {/* Full-height hit target, bigger than the mark. */}
               <rect x={i * bw} y={0} width={bw} height={H} fill="transparent" />
               {h > 0 && (
-                <rect x={i * bw + 0.5} y={H - h} width={Math.max(1, bw - 1)} height={h} rx={1} className={hover === i ? 'bar bar-hover' : 'bar'} />
+                <rect x={i * bw + 0.5} y={H - h} width={Math.max(1, bw - 1)} height={h} rx={1} className={hover === i ? `${barClass} bar-hover` : barClass} />
               )}
             </g>
           );

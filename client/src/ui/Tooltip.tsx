@@ -40,6 +40,16 @@ export function Tooltip({ team, x, y, now }: Props) {
             <span>Rank (7d)</span>
             <b>{team.rank7d ? `#${team.rank7d}` : '—'}</b>
           </div>
+          {team.registry && (
+            <div className="tt-reg">
+              <span>Registry parts</span>
+              <b>
+                <span className="v-published">{team.registry.published}</span>{' '}
+                {team.registry.screening > 0 && <span className="v-screening">{team.registry.screening}</span>}{' '}
+                <span className="v-draft">{team.registry.draft}</span>
+              </b>
+            </div>
+          )}
           <div className="tt-spark">
             <span>14 days</span>
             <Sparkline values={team.spark} width={150} height={22} />

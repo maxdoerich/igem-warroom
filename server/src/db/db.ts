@@ -51,6 +51,57 @@ CREATE TABLE IF NOT EXISTS sync_state (
   last_error       TEXT
 );
 
+-- iGEM parts registry (registry.igem.org). Only *published* parts are stored;
+-- unpublished work is represented solely by the registry's public aggregate counts.
+CREATE TABLE IF NOT EXISTS reg_parts (
+  uuid          TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,                  -- BBa_26…
+  slug          TEXT NOT NULL,
+  title         TEXT,
+  role_label    TEXT,
+  role_accession TEXT,
+  seq_length    INTEGER,
+  usage_count   INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,               -- ms epoch (registry audit.created)
+  updated_at    INTEGER NOT NULL,
+  first_seen_at INTEGER NOT NULL,               -- when we first saw it published
+  attributed    INTEGER NOT NULL DEFAULT 0,     -- team lookup done
+  last_listed_at INTEGER NOT NULL               -- last full listing that contained it
+);
+CREATE INDEX IF NOT EXISTS idx_reg_parts_created ON reg_parts(created_at);
+CREATE INDEX IF NOT EXISTS idx_reg_parts_updated ON reg_parts(updated_at);
+
+CREATE TABLE IF NOT EXISTS reg_part_teams (
+  part_uuid TEXT NOT NULL REFERENCES reg_parts(uuid) ON DELETE CASCADE,
+  team_id   INTEGER NOT NULL,
+  PRIMARY KEY (part_uuid, team_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reg_part_teams_team ON reg_part_teams(team_id);
+
+CREATE TABLE IF NOT EXISTS reg_summary (
+  team_id        INTEGER PRIMARY KEY,
+  found          INTEGER NOT NULL,              -- 0 = team has no registry organisation
+  published      INTEGER NOT NULL DEFAULT 0,
+  draft          INTEGER NOT NULL DEFAULT 0,
+  screening      INTEGER NOT NULL DEFAULT 0,
+  rejected       INTEGER NOT NULL DEFAULT 0,
+  with_docs      INTEGER NOT NULL DEFAULT 0,
+  documentation  INTEGER NOT NULL DEFAULT 0,
+  collections    INTEGER NOT NULL DEFAULT 0,
+  fetched_at     INTEGER NOT NULL
+);
+
+-- Count snapshots, written only when a team's counts change.
+CREATE TABLE IF NOT EXISTS reg_summary_history (
+  team_id   INTEGER NOT NULL,
+  at        INTEGER NOT NULL,
+  published INTEGER NOT NULL,
+  draft     INTEGER NOT NULL,
+  screening INTEGER NOT NULL,
+  rejected  INTEGER NOT NULL,
+  PRIMARY KEY (team_id, at)
+);
+
 CREATE TABLE IF NOT EXISTS kv (
   key   TEXT PRIMARY KEY,
   value TEXT

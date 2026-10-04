@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type FeedItem, type LiveCommit, type Meta, type TeamDetail, type TeamSummary } from './api';
+import { openChannel } from './shared/channel';
 import { WorldMap, type WorldMapHandle } from './map/WorldMap';
 import { Hud } from './ui/Hud';
 import { Leaderboard, type Filters, type Metric } from './ui/Leaderboard';
@@ -125,16 +126,32 @@ export function App() {
 
   const visible = useMemo(() => teams.filter(isVisible), [teams, isVisible]);
 
+  // Linked with the registry window: selections made in either window follow in the other.
+  const channel = useRef<ReturnType<typeof openChannel> | null>(null);
+
   const select = useCallback(
-    (team: TeamSummary | null, fly = false) => {
+    (team: TeamSummary | null, fly = false, broadcast = true) => {
       setSelectedId(team?.id ?? null);
       setDetail(null);
+      if (broadcast) channel.current?.post({ type: 'select', teamId: team?.id ?? null, source: 'map' });
       if (!team) return;
       loadDetail(team.id).catch(() => {});
       if (fly) mapRef.current?.flyTo(team.id);
     },
     [loadDetail],
   );
+
+  const teamsRef = useRef(teams);
+  teamsRef.current = teams;
+  useEffect(() => {
+    window.name = 'igem-warroom-map';
+    channel.current = openChannel((m) => {
+      if (m.type !== 'select' || m.source !== 'registry') return;
+      const t = m.teamId === null ? null : (teamsRef.current.find((x) => x.id === m.teamId) ?? null);
+      select(t, true, false);
+    });
+    return () => channel.current?.close();
+  }, [select]);
 
   const pickById = useCallback(
     (id: number) => {

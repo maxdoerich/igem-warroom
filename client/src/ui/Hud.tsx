@@ -1,5 +1,6 @@
 import type { Meta, TeamSummary } from '../api';
 import { fmtAgo, fmtCountdown, fmtInt } from '../format';
+import { openRegistryWindow } from '../shared/channel';
 
 interface Props {
   meta: Meta | null;
@@ -54,6 +55,10 @@ export function Hud({ meta, teams, connected, now }: Props) {
       <div className="hud-spacer" />
 
       <SyncCell meta={meta} now={now} />
+
+      <button className="hud-link" onClick={() => openRegistryWindow()} title="Open the parts registry in its own window">
+        Parts registry ↗
+      </button>
 
       <div className={`hud-live ${connected ? 'on' : 'off'}`}>
         <span className="dot" />

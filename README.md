@@ -38,6 +38,24 @@ Optional configuration: copy `.env.example` to `.env`.
   (institution name first, then city) and cached in the `geocode_cache` table. City-level fixes are
   marked "location approximate" in the tooltip.
 
+## Parts registry window
+
+"Parts registry ↗" in the top bar opens `/registry.html` in its own window: per-team published / screening /
+draft counts, published 2026 parts with types and lengths, the largest unpublished backlogs, and a live feed of
+newly published parts. Selecting a team in either window selects it in the other (`BroadcastChannel`).
+
+Data comes from `api.registry.igem.org` (≈100 requests / 10 min, tracked from its `x-ratelimit-*` headers):
+
+- **Counts** — `/organisations/igem/{teamId}/summary`, the registry's public aggregate per team; refreshed every
+  2 h, sooner when a team's parts change. Changes are kept in `reg_summary_history`.
+- **Published parts** — `/parts?name=BBa_26` (anonymous callers only receive published parts), fully listed
+  daily and polled every 2 min by last update. Each part is attributed to teams once via
+  `/parts/{uuid}/authors/organisations`.
+- Unpublished parts are represented **only** by the aggregate counts. The per-organisation parts endpoint is
+  deliberately not used: it also returns draft contents to anonymous callers.
+
+The first full load (≈460 summaries + ≈970 attributions) takes about 2.5 h; afterwards upkeep is light.
+
 ## How syncing works
 
 The anonymous GitLab API budget is **600 requests/hour**, so everything is budget-aware

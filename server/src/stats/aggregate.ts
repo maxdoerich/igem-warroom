@@ -34,6 +34,8 @@ export interface TeamSummary {
   spark: number[]; // daily commit counts, oldest first, last element = today (UTC)
   rank7d: number | null;
   rankTotal: number | null;
+  /** Parts registry counts; null until the team's summary has been fetched. */
+  registry: { published: number; draft: number; screening: number } | null;
 }
 
 const dayStart = (t: number) => Math.floor(t / DAY) * DAY;
@@ -48,8 +50,10 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
              COALESCE(SUM(c.committed_at >= :d7), 0) AS c7d,
              COALESCE(SUM(c.committed_at >= :d30), 0) AS c30d,
              COALESCE(SUM(c.additions), 0) AS additions, COALESCE(SUM(c.deletions), 0) AS deletions,
-             COUNT(DISTINCT LOWER(c.author_email)) AS contributors
+             COUNT(DISTINCT LOWER(c.author_email)) AS contributors,
+             rs.found AS reg_found, rs.published AS reg_published, rs.draft AS reg_draft, rs.screening AS reg_screening
       FROM teams t
+      LEFT JOIN reg_summary rs ON rs.team_id = t.id
       -- Ignore commits dated in the future (misconfigured clocks) so they can't pin "last commit".
       LEFT JOIN commits c ON c.team_id = t.id AND c.is_template = 0 AND c.committed_at <= :future
       LEFT JOIN sync_state s ON s.team_id = t.id
@@ -98,6 +102,7 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
     spark: spark.get(r.id) ?? new Array(SPARK_DAYS).fill(0),
     rank7d: null,
     rankTotal: null,
+    registry: r.reg_found ? { published: r.reg_published, draft: r.reg_draft, screening: r.reg_screening } : null,
   }));
 
   assignRanks(teams, 'c7d', 'rank7d');

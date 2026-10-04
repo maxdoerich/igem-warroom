@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { bus } from '../bus.ts';
 import { config } from '../config.ts';
 import { gitlab } from '../sources/gitlab.ts';
+import { registry } from '../sources/registry.ts';
+import type { LivePart } from '../sync/registry.ts';
+import { registryStatus } from '../sync/registry.ts';
 import { activity, feed, globalStats, teamDetail, teamSummaries } from '../stats/aggregate.ts';
 import { status } from '../sync/scheduler.ts';
 import type { NewCommit } from '../sync/commits.ts';
@@ -60,6 +63,9 @@ export async function apiRoutes(app: FastifyInstance) {
     const onStatus = () => send('meta', meta());
     const onTeams = () => send('teams-updated', {});
     const onBudget = () => send('budget', gitlab.budget);
+    const onParts = (parts: LivePart[]) => send('parts', parts);
+    const onRegistryUpdated = () => send('registry-updated', {});
+    const onRegistryStatus = () => send('registry-status', { status: registryStatus, budget: registry.budget });
 
     let lastBudget = 0;
     const throttledBudget = () => {
@@ -72,6 +78,9 @@ export async function apiRoutes(app: FastifyInstance) {
     bus.on('commits', onCommits);
     bus.on('status', onStatus);
     bus.on('teams-updated', onTeams);
+    bus.on('parts', onParts);
+    bus.on('registry-updated', onRegistryUpdated);
+    bus.on('registry-status', onRegistryStatus);
     gitlab.on('budget', throttledBudget);
     const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
 
@@ -80,6 +89,9 @@ export async function apiRoutes(app: FastifyInstance) {
       bus.off('commits', onCommits);
       bus.off('status', onStatus);
       bus.off('teams-updated', onTeams);
+      bus.off('parts', onParts);
+      bus.off('registry-updated', onRegistryUpdated);
+      bus.off('registry-status', onRegistryStatus);
       gitlab.off('budget', throttledBudget);
     });
   });
