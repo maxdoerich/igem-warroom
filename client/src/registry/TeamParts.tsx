@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import type { RegistryTeamDetail } from '../api';
+import { api, type RegistryTeamDetail } from '../api';
 import { fmtAgo, fmtInt, fmtUtc, regionLabel, sectionLabel } from '../format';
 import { HBars } from './Overview';
 import { StatusBar, StatusLegend } from './StatusBar';
 
 type SortKey = 'createdAt' | 'name' | 'role' | 'seqLength' | 'usageCount';
 
-export function TeamParts({ team, isHome, onClose, onShowOnMap, now }: { team: RegistryTeamDetail; isHome: boolean; onClose: () => void; onShowOnMap: () => void; now: number }) {
+export function TeamParts({ team, isHome, onClose, onShowOnMap, now, onDetail }: { team: RegistryTeamDetail; isHome: boolean; onClose: () => void; onShowOnMap: () => void; now: number; onDetail: (d: RegistryTeamDetail) => void }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'createdAt', dir: -1 });
   const parts = useMemo(() => {
     const val = (p: (typeof team.parts)[number]) => p[sort.key] ?? '';
@@ -20,6 +20,17 @@ export function TeamParts({ team, isHome, onClose, onShowOnMap, now }: { team: R
       </button>
     </th>
   );
+  const [syncing, setSyncing] = useState<'idle' | 'busy' | 'error'>('idle');
+  const syncDrafts = () => {
+    setSyncing('busy');
+    api.syncRegistryDrafts(team.id).then(
+      (d) => {
+        onDetail(d);
+        setSyncing('idle');
+      },
+      () => setSyncing('error'),
+    );
+  };
   const total = team.published + team.screening + team.draft;
 
   return (
@@ -133,6 +144,50 @@ export function TeamParts({ team, isHome, onClose, onShowOnMap, now }: { team: R
           </table>
         </div>
       </section>
+
+      {(team.draft > 0 || team.drafts.length > 0) && (
+        <section className="panel reg-card reg-wide">
+          <div className="panel-title">
+            <span>Draft parts</span>
+            <span>
+              <button className="btn btn-small-inline" onClick={syncDrafts} disabled={syncing === 'busy'}>
+                {syncing === 'busy' ? 'Syncing…' : syncing === 'error' ? 'Sync failed — retry' : 'Sync drafts'}
+              </button>{' '}
+              <span className="muted">{team.drafts.length} synced{team.drafts.length < team.draft ? ` of ${team.draft} (sync in progress)` : ''}</span>
+            </span>
+          </div>
+          <div className="reg-card-body reg-table-wrap">
+            <table className="tp-table parts-table">
+              <thead>
+                <tr>
+                  <th>Part</th>
+                  <th>Title</th>
+                  <th>Type</th>
+                  <th className="num">Length</th>
+                  <th className="num">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {team.drafts.map((p) => (
+                  <tr key={p.uuid}>
+                    <td className="mono">
+                      <a href={p.url} target="_blank" rel="noreferrer">
+                        {p.name}
+                      </a>
+                    </td>
+                    <td className="part-title">{p.title}</td>
+                    <td>{p.role ?? '—'}</td>
+                    <td className="num">{p.seqLength ? `${fmtInt(p.seqLength)} bp` : '—'}</td>
+                    <td className="num muted" title={fmtUtc(p.updatedAt)}>
+                      {fmtAgo(p.updatedAt, now)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

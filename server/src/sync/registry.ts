@@ -7,6 +7,7 @@ import { registry, teamIdFromOrg, type RegistryPart } from '../sources/registry.
 const LIVE_INTERVAL_MS = 2 * 60_000;
 const FULL_LIST_INTERVAL_MS = 24 * 3600_000;
 const SUMMARY_MAX_AGE_MS = 2 * 3600_000;
+const DRAFTS_MAX_AGE_MS = 6 * 3600_000;
 const LIVE_PAGE = 50;
 
 export interface RegistryStatus {
@@ -125,6 +126,27 @@ async function refreshSummary(teamId: number) {
   }
 }
 
+/** `critical` (manual sync) may dip into the budget reserve. */
+export async function syncDrafts(teamId: number, critical = false) {
+  const prev = db.prepare('SELECT org_uuid FROM reg_draft_sync WHERE team_id = ?').get(teamId) as { org_uuid: string | null } | undefined;
+  const count = (db.prepare('SELECT draft FROM reg_summary WHERE team_id = ?').get(teamId) as { draft: number } | undefined)?.draft ?? 0;
+  const { org, drafts } = await registry.teamDrafts(teamId, prev?.org_uuid, critical);
+  const now = Date.now();
+  transaction(() => {
+    db.prepare('DELETE FROM reg_drafts WHERE team_id = ?').run(teamId);
+    const ins = db.prepare(`
+      INSERT INTO reg_drafts (uuid, team_id, name, slug, title, role_label, seq_length, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(uuid) DO UPDATE SET team_id = excluded.team_id, name = excluded.name, slug = excluded.slug, title = excluded.title,
+        role_label = excluded.role_label, seq_length = excluded.seq_length, updated_at = excluded.updated_at`);
+    for (const p of drafts) {
+      ins.run(p.uuid, teamId, p.name, p.slug, p.title ?? null, p.role?.label ?? null, p.sequenceLength ?? null, Date.parse(p.audit.created), Date.parse(p.audit.updated));
+    }
+    db.prepare('INSERT OR REPLACE INTO reg_draft_sync (team_id, org_uuid, draft_count, synced_at) VALUES (?, ?, ?, ?)').run(teamId, org, count, now);
+  });
+  bus.emit('registry-updated');
+}
+
 const teamNames = db.prepare('SELECT id, name, slug FROM teams WHERE id = ?');
 
 /** Newest-updated published parts, every 2 minutes, on the reserved budget. */
@@ -186,6 +208,15 @@ function nextTask(preferParts: boolean): Task | null {
   const partTask = part && { label: 'attribute', run: () => attribute(part.uuid) };
   const first = preferParts ? partTask || summaryTask : summaryTask || partTask;
   if (first) return first;
+
+  // Draft lists: never synced, older than DRAFTS_MAX_AGE_MS, or the summary count moved since the last sync.
+  const drafts = db
+    .prepare(`
+      SELECT s.team_id FROM reg_summary s LEFT JOIN reg_draft_sync d ON d.team_id = s.team_id
+      WHERE s.found = 1 AND ((s.draft > 0 AND (d.team_id IS NULL OR d.synced_at < ?)) OR (d.team_id IS NOT NULL AND d.draft_count != s.draft))
+      ORDER BY (d.team_id IS NULL) DESC, s.draft DESC LIMIT 1`)
+    .get(Date.now() - DRAFTS_MAX_AGE_MS) as { team_id: number } | undefined;
+  if (drafts) return { label: 'drafts', run: () => syncDrafts(drafts.team_id) };
 
   // Stale summaries (live poll zeroes fetched_at for teams with fresh part activity).
   const stale = db

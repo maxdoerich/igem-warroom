@@ -100,6 +100,13 @@ export function registryTeamDetail(teamId: number) {
         WHERE pt.team_id = ? ORDER BY p.created_at DESC`)
       .all(teamId) as any[]
   ).map((p) => ({ ...p, url: partUrl(p.slug) }));
+  const drafts = (
+    db
+      .prepare(`
+        SELECT uuid, name, slug, title, role_label AS role, seq_length AS seqLength, created_at AS createdAt, updated_at AS updatedAt
+        FROM reg_drafts WHERE team_id = ? ORDER BY created_at DESC`)
+      .all(teamId) as any[]
+  ).map((p) => ({ ...p, url: partUrl(p.slug) }));
   const history = (
     db
       .prepare('SELECT at, published, draft, screening, rejected FROM reg_summary_history WHERE team_id = ? ORDER BY at')
@@ -110,6 +117,7 @@ export function registryTeamDetail(teamId: number) {
   return {
     ...row,
     parts,
+    drafts,
     history,
     roles: [...roles].map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n),
     registryUrl: `https://registry.igem.org/organisations/igem/${teamId}`,
@@ -126,4 +134,26 @@ export function registryFeed(limit = 60) {
   const teamsOf = db.prepare(`
     SELECT t.id, t.name, t.slug FROM reg_part_teams pt JOIN teams t ON t.id = pt.team_id WHERE pt.part_uuid = ?`);
   return parts.map((p) => ({ ...p, url: partUrl(p.slug), teams: (teamsOf.all(p.uuid) as any[]).map((t) => ({ ...t })) }));
+}
+
+/** Every published part with its teams, for the parts explorer (client-side filtering and grouping). */
+export function registryParts() {
+  const parts = db
+    .prepare(`
+      SELECT uuid, name, slug, title, role_label AS role, seq_length AS seqLength, usage_count AS usageCount,
+             created_at AS createdAt, updated_at AS updatedAt
+      FROM reg_parts ORDER BY usage_count DESC, created_at DESC`)
+    .all() as any[];
+  const teamsOf = new Map<string, { id: number; name: string; slug: string }[]>();
+  for (const r of db
+    .prepare('SELECT pt.part_uuid AS uuid, t.id, t.name, t.slug FROM reg_part_teams pt JOIN teams t ON t.id = pt.team_id')
+    .all() as any[]) {
+    const list = teamsOf.get(r.uuid) ?? [];
+    list.push({ id: r.id, name: r.name, slug: r.slug });
+    teamsOf.set(r.uuid, list);
+  }
+  return parts.map((p) => {
+    const teams = teamsOf.get(p.uuid) ?? [];
+    return { ...p, url: partUrl(p.slug), teams, teamCount: teams.length };
+  });
 }

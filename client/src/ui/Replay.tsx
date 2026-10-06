@@ -25,6 +25,7 @@ export function Replay({ teams, onOverride }: Props) {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [day, setDay] = useState(DAYS - 1);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
 
   useEffect(() => {
     if (!open || activity) return;
@@ -71,6 +72,19 @@ export function Replay({ teams, onOverride }: Props) {
     onOverride(o);
   }, [open, frames, day, onOverride]);
 
+  // Per-day totals for the chart and stats overlay.
+  const daily = useMemo(() => {
+    if (!activity) return null;
+    const commits = new Array<number>(activity.days).fill(0);
+    const teamsActive = new Array<number>(activity.days).fill(0);
+    for (const counts of Object.values(activity.series))
+      counts.forEach((n, d) => {
+        commits[d] += n;
+        if (n > 0) teamsActive[d]++;
+      });
+    return { commits, teamsActive, max: Math.max(1, ...commits) };
+  }, [activity]);
+
   useEffect(() => {
     if (!playing || !activity) return;
     const id = setInterval(() => {
@@ -81,9 +95,9 @@ export function Replay({ teams, onOverride }: Props) {
         }
         return d + 1;
       });
-    }, 140);
+    }, 140 / speed);
     return () => clearInterval(id);
-  }, [playing, activity]);
+  }, [playing, activity, speed]);
 
   const close = () => {
     setOpen(false);
@@ -121,10 +135,46 @@ export function Replay({ teams, onOverride }: Props) {
       />
       <div className="replay-stat mono">
         {active} <span className="muted">hot teams</span>
+        {daily && (
+          <>
+            {' · '}
+            {daily.commits[day]} <span className="muted">commits</span>
+            {' · '}
+            {daily.teamsActive[day]} <span className="muted">teams that day</span>
+          </>
+        )}
       </div>
+      <select className="replay-speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Replay speed">
+        {[1, 2, 4, 8].map((x) => (
+          <option key={x} value={x}>
+            {x}×
+          </option>
+        ))}
+      </select>
       <button className="btn" onClick={close}>
         Exit replay
       </button>
+      {daily && (
+        <svg
+          className="replay-chart"
+          viewBox={`0 0 ${DAYS} 40`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Commits per day"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPlaying(false);
+            setDay(Math.min(DAYS - 1, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * DAYS))));
+          }}
+        >
+          {daily.commits.map((n, d) => (
+            <rect key={d} className={`rc-bar ${d <= day ? 'past' : ''}`} x={d + 0.1} width={0.8} y={40 - (n / daily.max) * 38} height={(n / daily.max) * 38}>
+              <title>{`${new Date(activity!.start + d * activity!.dayMs).toISOString().slice(0, 10)}: ${n} commits`}</title>
+            </rect>
+          ))}
+          <line className="rc-cursor" x1={day + 0.5} x2={day + 0.5} y1={0} y2={40} vectorEffect="non-scaling-stroke" />
+        </svg>
+      )}
     </div>
   );
 }

@@ -1,23 +1,51 @@
 import { useMemo } from 'react';
 import type { TeamSummary } from '../api';
 import { fmtAgo, fmtCompact, regionLabel, sectionLabel } from '../format';
+import { Aggregates } from './Aggregates';
 import { Sparkline } from './Sparkline';
 
-export type Metric = 'c24h' | 'c7d' | 'commits' | 'heat';
+export type Metric = 'c24h' | 'c7d' | 'commits' | 'heat' | 'parts' | 'streak' | 'growth' | 'lines';
 
 export interface Filters {
   query: string;
   region: string;
   section: string;
+  village: string;
+  country: string;
   activeOnly: boolean;
 }
 
-const METRICS: { key: Metric; label: string }[] = [
-  { key: 'c24h', label: '24H' },
-  { key: 'c7d', label: '7D' },
-  { key: 'commits', label: 'TOTAL' },
-  { key: 'heat', label: 'HEAT' },
+const METRICS: { key: Metric; label: string; title: string }[] = [
+  { key: 'c24h', label: '24H', title: 'Commits in the last 24 hours' },
+  { key: 'c7d', label: '7D', title: 'Commits in the last 7 days' },
+  { key: 'commits', label: 'TOTAL', title: 'All commits' },
+  { key: 'heat', label: 'HEAT', title: 'Recency-weighted activity' },
+  { key: 'parts', label: 'PARTS', title: 'Published registry parts' },
+  { key: 'streak', label: 'STREAK', title: 'Consecutive days with a commit' },
+  { key: 'growth', label: 'Δ7D', title: 'Commits in the last 7 days minus the 7 days before — fastest-growing first' },
+  { key: 'lines', label: 'LINES', title: 'Net lines added to the wiki repo (additions − deletions)' },
 ];
+
+export const metricValue = (t: TeamSummary, m: Metric): number => {
+  switch (m) {
+    case 'parts':
+      return t.registry?.published ?? 0;
+    case 'growth':
+      return t.c7d - t.cPrev7d;
+    case 'lines':
+      return t.additions - t.deletions;
+    default:
+      return t[m];
+  }
+};
+
+function fmtMetric(t: TeamSummary, m: Metric): string {
+  const v = metricValue(t, m);
+  if (m === 'heat') return v.toFixed(1);
+  if (m === 'streak') return `${v}d`;
+  if (m === 'growth') return v > 0 ? `+${fmtCompact(v)}` : String(v);
+  return fmtCompact(v);
+}
 
 interface Props {
   teams: TeamSummary[];
@@ -36,15 +64,18 @@ export function Leaderboard({ teams, visible, metric, onMetric, filters, onFilte
   const regions = useMemo(() => [...new Set(teams.map((t) => t.region).filter(Boolean) as string[])].sort(), [teams]);
   const sections = useMemo(() => [...new Set(teams.map((t) => t.section ?? 'other'))].sort(), [teams]);
 
+  const countries = useMemo(() => [...new Set(teams.map((t) => t.country).filter(Boolean) as string[])].sort(), [teams]);
+  const villages = useMemo(() => [...new Set(teams.map((t) => t.village).filter(Boolean) as string[])].sort(), [teams]);
+
   const ranked = useMemo(
-    () => [...visible].sort((a, b) => b[metric] - a[metric] || (b.lastCommitAt ?? 0) - (a.lastCommitAt ?? 0)),
+    () => [...visible].sort((a, b) => metricValue(b, metric) - metricValue(a, metric) || (b.lastCommitAt ?? 0) - (a.lastCommitAt ?? 0)),
     [visible, metric],
   );
   const sparkMax = useMemo(() => Math.max(1, ...ranked.slice(0, 60).flatMap((t) => t.spark)), [ranked]);
   const home = teams.find((t) => t.slug === homeSlug);
   const homeIdx = ranked.findIndex((t) => t.slug === homeSlug);
 
-  const fmtValue = (t: TeamSummary) => (metric === 'heat' ? t.heat.toFixed(1) : fmtCompact(t[metric]));
+  const fmtValue = (t: TeamSummary) => fmtMetric(t, metric);
 
   return (
     <aside className="leaderboard panel">
@@ -57,7 +88,7 @@ export function Leaderboard({ teams, visible, metric, onMetric, filters, onFilte
 
       <div className="seg" role="tablist">
         {METRICS.map((m) => (
-          <button key={m.key} role="tab" aria-selected={metric === m.key} className={metric === m.key ? 'on' : ''} onClick={() => onMetric(m.key)}>
+          <button key={m.key} role="tab" title={m.title} aria-selected={metric === m.key} className={metric === m.key ? 'on' : ''} onClick={() => onMetric(m.key)}>
             {m.label}
           </button>
         ))}
@@ -88,17 +119,37 @@ export function Leaderboard({ teams, visible, metric, onMetric, filters, onFilte
             ))}
           </select>
         </div>
+        <div className="filter-row">
+          <select value={filters.village} onChange={(e) => onFilters({ ...filters, village: e.target.value })}>
+            <option value="">All tracks</option>
+            {villages.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <select value={filters.country} onChange={(e) => onFilters({ ...filters, country: e.target.value })}>
+            <option value="">All countries</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
         <label className="check">
           <input type="checkbox" checked={filters.activeOnly} onChange={(e) => onFilters({ ...filters, activeOnly: e.target.checked })} />
           Active in last 7 days only
         </label>
       </div>
 
+      <Aggregates visible={visible} filters={filters} onFilters={onFilters} />
+
       {home && (
         <button className={`lb-home ${selectedId === home.id ? 'sel' : ''}`} onClick={() => onPick(home)}>
           <span className="lb-home-tag">HOME</span>
           <span className="lb-name">{home.name}</span>
-          <span className="lb-home-rank">{homeIdx >= 0 && home[metric] > 0 ? `#${homeIdx + 1}` : '—'}</span>
+          <span className="lb-home-rank">{homeIdx >= 0 && metricValue(home, metric) > 0 ? `#${homeIdx + 1}` : '—'}</span>
           <span className="lb-val">{fmtValue(home)}</span>
         </button>
       )}
@@ -111,7 +162,7 @@ export function Leaderboard({ teams, visible, metric, onMetric, filters, onFilte
               onClick={() => onPick(t)}
               title={`${t.name} — last commit ${fmtAgo(t.lastCommitAt, now)}`}
             >
-              <span className="lb-rank">{t[metric] > 0 ? i + 1 : '—'}</span>
+              <span className="lb-rank">{metricValue(t, metric) > 0 ? i + 1 : '—'}</span>
               <span className="lb-main">
                 <span className="lb-name">{t.name}</span>
                 <span className="lb-sub">

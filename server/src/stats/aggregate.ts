@@ -28,6 +28,10 @@ export interface TeamSummary {
   c24h: number;
   c7d: number;
   c30d: number;
+  /** Commits in the 7 days before the last 7 (for week-over-week growth). */
+  cPrev7d: number;
+  /** Consecutive UTC days with a commit, still alive if the last one was yesterday. */
+  streak: number;
   additions: number;
   deletions: number;
   contributors: number;
@@ -50,6 +54,7 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
              COALESCE(SUM(c.committed_at >= :d1), 0) AS c24h,
              COALESCE(SUM(c.committed_at >= :d7), 0) AS c7d,
              COALESCE(SUM(c.committed_at >= :d30), 0) AS c30d,
+             COALESCE(SUM(c.committed_at >= :d14 AND c.committed_at < :d7), 0) AS cprev7d,
              COALESCE(SUM(c.additions), 0) AS additions, COALESCE(SUM(c.deletions), 0) AS deletions,
              COUNT(DISTINCT LOWER(c.author_email)) AS contributors,
              rs.found AS reg_found, rs.published AS reg_published, rs.draft AS reg_draft, rs.screening AS reg_screening
@@ -59,7 +64,7 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
       LEFT JOIN commits c ON c.team_id = t.id AND c.is_template = 0 AND c.committed_at <= :future
       LEFT JOIN sync_state s ON s.team_id = t.id
       GROUP BY t.id`)
-    .all({ d1: now - DAY, d7: now - 7 * DAY, d30: now - 30 * DAY, future: now + HOUR }) as Record<string, any>[];
+    .all({ d1: now - DAY, d7: now - 7 * DAY, d14: now - 14 * DAY, d30: now - 30 * DAY, future: now + HOUR }) as Record<string, any>[];
 
   const sparkStart = dayStart(now) - (SPARK_DAYS - 1) * DAY;
   const recent = db
@@ -75,6 +80,8 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
     const idx = Math.floor((r.committed_at - sparkStart) / DAY);
     if (idx >= 0 && idx < SPARK_DAYS) s[idx]++;
   }
+
+  const streaks = commitStreaks(now);
 
   const teams: TeamSummary[] = rows.map((r) => ({
     id: r.id,
@@ -97,6 +104,8 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
     c24h: r.c24h,
     c7d: r.c7d,
     c30d: r.c30d,
+    cPrev7d: r.cprev7d,
+    streak: streaks.get(r.id) ?? 0,
     additions: r.additions,
     deletions: r.deletions,
     contributors: r.contributors,
@@ -110,6 +119,25 @@ export function teamSummaries(now = Date.now()): TeamSummary[] {
   assignRanks(teams, 'c7d', 'rank7d');
   assignRanks(teams, 'commits', 'rankTotal');
   return teams;
+}
+
+function commitStreaks(now: number): Map<number, number> {
+  const today = Math.floor(now / DAY);
+  const rows = db
+    .prepare(`
+      SELECT DISTINCT team_id, committed_at / ${DAY} AS day FROM commits
+      WHERE is_template = 0 AND committed_at >= ? AND committed_at <= ?`)
+    .all((today - 120) * DAY, now) as { team_id: number; day: number }[];
+  const days = new Map<number, Set<number>>();
+  for (const r of rows) (days.get(r.team_id) ?? days.set(r.team_id, new Set()).get(r.team_id)!).add(r.day);
+  const out = new Map<number, number>();
+  for (const [id, set] of days) {
+    let d = set.has(today) ? today : today - 1; // ponytail: capped at 120 days by the query window
+    let n = 0;
+    while (set.has(d--)) n++;
+    out.set(id, n);
+  }
+  return out;
 }
 
 /** Standard competition ranking (1, 2, 2, 4); teams with zero get no rank. */

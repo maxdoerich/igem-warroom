@@ -19,6 +19,8 @@ export interface TeamSummary {
   c24h: number;
   c7d: number;
   c30d: number;
+  cPrev7d: number;
+  streak: number;
   additions: number;
   deletions: number;
   contributors: number;
@@ -161,8 +163,24 @@ export interface RegistryPartRow {
   url: string;
 }
 
+export interface RegistryPartListItem extends RegistryPartRow {
+  teams: { id: number; name: string; slug: string }[];
+}
+
+export interface RegistryDraft {
+  uuid: string;
+  name: string;
+  title: string | null;
+  role: string | null;
+  seqLength: number | null;
+  createdAt: number;
+  updatedAt: number;
+  url: string;
+}
+
 export interface RegistryTeamDetail extends RegistryTeamRow {
   parts: RegistryPartRow[];
+  drafts: RegistryDraft[];
   history: { at: number; published: number; draft: number; screening: number; rejected: number }[];
   roles: { label: string; n: number }[];
   registryUrl: string;
@@ -200,7 +218,14 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function post<T>(path: string): Promise<T> {
+  const res = await fetch(path, { method: 'POST' });
+  if (!res.ok) throw new Error(`${res.status} ${path}`);
+  return res.json() as Promise<T>;
+}
+
 export const api = {
+  syncRegistryDrafts: (id: number) => post<RegistryTeamDetail>(`/api/registry/teams/${id}/drafts/sync`),
   meta: () => get<Meta>('/api/meta'),
   teams: () => get<TeamSummary[]>('/api/teams'),
   team: (id: number) => get<TeamDetail>(`/api/teams/${id}`),
@@ -208,5 +233,6 @@ export const api = {
   registryOverview: () => get<RegistryOverview>('/api/registry/overview'),
   registryTeams: () => get<RegistryTeamRow[]>('/api/registry/teams'),
   registryTeam: (id: number) => get<RegistryTeamDetail>(`/api/registry/teams/${id}`),
+  registryParts: () => get<RegistryPartListItem[]>('/api/registry/parts'),
   registryFeed: (limit = 80) => get<RegistryFeedItem[]>(`/api/registry/feed?limit=${limit}`),
 };

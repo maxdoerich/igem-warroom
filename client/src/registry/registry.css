@@ -148,6 +148,20 @@
 .parts-feed li.home .team-chip { color: var(--accent); }
 .parts-feed li.fresh { animation: fresh 3s ease-out; }
 
+.reg-view { grid-template-columns: repeat(2, 1fr); max-width: 320px; margin-bottom: 8px; }
+.pe-seg { grid-template-columns: repeat(2, 1fr); max-width: 260px; margin-bottom: 10px; }
+.pe-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.pe-filters input, .pe-filters select {
+  background: var(--page);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  color: var(--ink);
+  padding: 5px 8px;
+  font: 12px var(--sans);
+}
+.parts-table .tag { margin-left: 6px; }
+.parts-table .team-chip { margin: 0 4px 2px 0; }
+
 @media (max-width: 1100px) {
   .reg-layout { grid-template-columns: 1fr; }
   .reg-overview, .reg-team { grid-template-columns: 1fr; }

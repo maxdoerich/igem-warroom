@@ -140,6 +140,22 @@ class RegistryClient extends EventEmitter {
     return (await this.get<RegistryOrg[]>(`/parts/${uuid}/authors/organisations`, { critical, allow404: true })) ?? [];
   }
 
+  /**
+   * A team's draft parts, newest first (anonymous callers can read drafts per organisation).
+   * Needs the organisation UUID, resolved from the team id unless already known.
+   */
+  async teamDrafts(teamId: number, knownOrg?: string | null, critical = false): Promise<{ org: string | null; drafts: RegistryPart[] }> {
+    const org = knownOrg ?? (await this.get<{ uuid: string }>(`/organisations/igem/${teamId}`, { allow404: true, critical }))?.uuid ?? null;
+    if (!org) return { org, drafts: [] };
+    const out: RegistryPart[] = [];
+    for (let page = 1; ; page++) {
+      const res = (await this.get<{ data: RegistryPart[]; total: number }>(`/organisations/${org}/parts?page=${page}&pageSize=100`, { critical }))!;
+      out.push(...res.data);
+      if (res.data.length < 100 || out.length >= res.total) break;
+    }
+    return { org, drafts: out.filter((p) => p.status === 'draft') };
+  }
+
   /** Public aggregate counts per status (draft / screening / published / rejected). */
   teamSummary(teamId: number) {
     return this.get<RegistrySummary>(`/organisations/igem/${teamId}/summary`, { allow404: true });

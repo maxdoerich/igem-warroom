@@ -4,12 +4,14 @@ import {
   type LivePart,
   type Meta,
   type RegistryFeedItem,
+  type RegistryPartListItem,
   type RegistryOverview,
   type RegistryTeamDetail,
   type RegistryTeamRow,
 } from '../api';
 import { openChannel } from '../shared/channel';
 import { Overview } from './Overview';
+import { PartsExplorer } from './PartsExplorer';
 import { PartsFeed } from './PartsFeed';
 import { RegistryHud } from './RegistryHud';
 import { TeamParts } from './TeamParts';
@@ -41,8 +43,13 @@ export function RegistryApp() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<RegistryTeamDetail | null>(null);
   const [connected, setConnected] = useState(false);
+  const [view, setView] = useState<'overview' | 'parts'>('overview');
+  const [parts, setParts] = useState<RegistryPartListItem[]>([]);
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
+
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   const loadDetail = useCallback((id: number) => {
     api
@@ -64,6 +71,7 @@ export function RegistryApp() {
         .registryFeed(FEED_MAX)
         .then((f) => setFeed((prev) => mergeFresh(f, prev)))
         .catch(() => {});
+      if (viewRef.current === 'parts') api.registryParts().then(setParts).catch(() => {});
       if (selectedRef.current !== null) loadDetail(selectedRef.current);
     }, 2000);
   }, [loadDetail]);
@@ -162,12 +170,31 @@ export function RegistryApp() {
           focusMap();
         }}
         now={now}
+        onDetail={(d) => selectedRef.current === d.id && setDetail(d)}
       />
     );
   } else if (selectedId !== null) {
     center = <div className="panel reg-card muted reg-loading">Loading team…</div>;
   } else if (overview) {
-    center = <Overview overview={overview} teams={teams} onPick={(t) => select(t.id)} />;
+    center = (
+      <>
+        <div className="seg seg-inline reg-view">
+          <button className={view === 'overview' ? 'on' : ''} onClick={() => setView('overview')}>
+            OVERVIEW
+          </button>
+          <button
+            className={view === 'parts' ? 'on' : ''}
+            onClick={() => {
+              setView('parts');
+              api.registryParts().then(setParts).catch(() => {});
+            }}
+          >
+            PARTS EXPLORER
+          </button>
+        </div>
+        {view === 'parts' ? <PartsExplorer parts={parts} onPickTeam={(id) => select(id)} /> : <Overview overview={overview} teams={teams} onPick={(t) => select(t.id)} />}
+      </>
+    );
   } else {
     center = <div className="panel reg-card muted reg-loading">Connecting to server…</div>;
   }

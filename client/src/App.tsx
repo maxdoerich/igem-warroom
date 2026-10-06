@@ -48,7 +48,7 @@ export function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [hover, setHover] = useState<{ team: TeamSummary; x: number; y: number } | null>(null);
   const [metric, setMetric] = useState<Metric>('c7d');
-  const [filters, setFilters] = useState<Filters>({ query: '', region: '', section: '', activeOnly: false });
+  const [filters, setFilters] = useState<Filters>({ query: '', region: '', section: '', village: '', country: '', activeOnly: false });
   const [error, setError] = useState<string | null>(null);
   const [replay, setReplay] = useState<ReplayOverride | null>(null);
 
@@ -121,6 +121,8 @@ export function App() {
       (!q || [t.name, t.city, t.country, t.institution].some((v) => v?.toLowerCase().includes(q))) &&
       (!filters.region || t.region === filters.region) &&
       (!filters.section || (t.section ?? 'other') === filters.section) &&
+      (!filters.village || t.village === filters.village) &&
+      (!filters.country || t.country === filters.country) &&
       (!filters.activeOnly || t.c7d > 0);
   }, [filters]);
 

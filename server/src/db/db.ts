@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS sync_state (
   last_error       TEXT
 );
 
--- iGEM parts registry (registry.igem.org). Only *published* parts are stored;
--- unpublished work is represented solely by the registry's public aggregate counts.
+-- iGEM parts registry (registry.igem.org). reg_parts holds only *published* parts;
+-- drafts live in reg_drafts, other unpublished work only as aggregate counts.
 CREATE TABLE IF NOT EXISTS reg_parts (
   uuid          TEXT PRIMARY KEY,
   name          TEXT NOT NULL,                  -- BBa_26…
@@ -101,6 +101,28 @@ CREATE TABLE IF NOT EXISTS reg_summary_history (
   screening INTEGER NOT NULL,
   rejected  INTEGER NOT NULL,
   PRIMARY KEY (team_id, at)
+);
+
+-- Unpublished (draft) parts per team, synced from /organisations/{uuid}/parts.
+CREATE TABLE IF NOT EXISTS reg_drafts (
+  uuid       TEXT PRIMARY KEY,
+  team_id    INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  slug       TEXT NOT NULL,
+  title      TEXT,
+  role_label TEXT,
+  seq_length INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reg_drafts_team ON reg_drafts(team_id);
+
+-- Per-team draft sync state; draft_count is the summary count the sync was made against.
+CREATE TABLE IF NOT EXISTS reg_draft_sync (
+  team_id     INTEGER PRIMARY KEY,
+  org_uuid    TEXT,
+  draft_count INTEGER NOT NULL,
+  synced_at   INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS kv (
